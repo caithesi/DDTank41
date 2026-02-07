@@ -51,7 +51,7 @@ namespace DDTank.Shared
             _digable = digable;
             _bw = _width / 8 + 1;
             _bh = _height;
-            _rect = new Rectangle(0, 0, _width, _height);
+            ScanBound();
         }
 
         /// <summary>
@@ -88,8 +88,38 @@ namespace DDTank.Shared
                 _bh = _height;
                 _data = reader.ReadBytes(_bw * _bh);
                 _digable = digable;
-                _rect = new Rectangle(0, 0, _width, _height);
+                ScanBound();
             }
+        }
+
+        /// <summary>
+        /// Scans the bitmask data to find the tightest bounding rectangle of solid pixels.
+        /// Optimizes subsequent Dig and collision operations.
+        /// </summary>
+        private void ScanBound()
+        {
+            int minX = _width, minY = _height, maxX = 0, maxY = 0;
+            bool found = false;
+
+            for (int y = 0; y < _height; y++)
+            {
+                for (int x = 0; x < _width; x++)
+                {
+                    if (!IsEmpty(x, y))
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                        found = true;
+                    }
+                }
+            }
+
+            if (found)
+                _rect = new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+            else
+                _rect = new Rectangle(0, 0, 0, 0);
         }
 
         /// <summary>

@@ -29,9 +29,27 @@ The "Bomb" in DDTank is not a single file, but a synchronized package of data:
 - **1 (Bit Set)**: Represents a "solid" part of the hole. When applied via `Remove`, these pixels become transparent in the map.
 - **0 (Bit Clear)**: Represents "empty" space. These areas of the mask have no effect on the target terrain.
 
+## 3. Shape Variety & Irregular Craters
+
+Unlike many games that use procedural geometric formulas (like circles), DDTank uses a **"Stamp" Philosophy** for terrain destruction.
+
+### How Irregular Shapes are Handled
+Because shapes are stored as raw bitmasks, the engine supports any arbitrary shape without extra math:
+- **Serrated Circles**: The most common weapon crater, having jagged edges for a "burnt" aesthetic.
+- **Rectangular/V-Shapes**: Used for specialized drills or weapons.
+- **Thematic Shapes**: "Love" bombs can create heart-shaped holes because the `.bomb` file simply contains a heart-shaped bitmask.
+
+### Rasterization Process
+Shapes are created by converting images (PNGs) into bitmasks. If a pixel's Alpha value is above 100, it is considered "solid" (1) in the `.bomb` mask. This allows artists to design craters in Photoshop rather than developers writing complex geometry code.
+
+### Bounding Box Optimization (`ScanBound`)
+While the `.bomb` file has a fixed width and height (e.g., 60x60), the actual "solid" shape inside it might be smaller (e.g., a 20x20 jagged star).
+- **Legacy Behavior**: Used the full file dimensions for bounds checking.
+- **Modernized shared logic**: Implements a `ScanBound()` method that pre-scans the bitmask on initialization to find the tightest possible `Rectangle` covering only the "1" bits. This significantly reduces the iteration count in `Add`/`Remove` operations.
+
 ---
 
-## 3. Metadata: `BallInfo`
+## 4. Metadata: `BallInfo`
 
 Every weapon/bullet has a `BallID` which maps to a `BallInfo` entry. This bridges the physical hole with the player's experience.
 

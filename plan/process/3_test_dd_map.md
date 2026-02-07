@@ -15,6 +15,11 @@ We designed a synchronization strategy between Godot's `ImageTexture` and the sh
 - **`DDTankMap.cs`**: Created a custom Godot C# script that translates a PNG texture into a `Tile` bitmask on startup and synchronizes pixel transparency in real-time.
 - **`IMap` Implementation**: The Godot-side node now acts as the official world authority for physics objects (`BombObject`).
 
+**Critical Implementation Details:**
+1.  **Image Preparation**: Godot imports textures with VRAM compression. To modify pixels via code, the image must be decompressed using `image.Decompress()` and converted to `Image.Format.Rgba8` to ensure an alpha channel exists.
+2.  **Performance**: Use `texture.Update(image)` instead of creating a new texture every frame to minimize GPU overhead.
+3.  **Coordinate Alignment**: Set `Centered = false` on the terrain `Sprite2D` to align local (0,0) with pixel (0,0), simplifying bitmask-to-visual mapping.
+
 ---
 
 ## 2. Testing & Debugging Guide
@@ -28,47 +33,60 @@ This guide provides a step-by-step procedure to verify the "Dig" implementation 
 
 ---
 
-### Step 1: Scene Construction
-1.  Create a new **2D Scene**.
-2.  Add a `Node2D` as the root and rename it to `TestMap`.
-3.  Attach a new C# script to the root node (e.g., `MapTester.cs`).
-4.  Add a `Sprite2D` as a child of `TestMap`:
-    -   Rename it to `TerrainSprite`.
-    -   Assign a large PNG (e.g., 1000x600) as its texture. This will be your "Destructible Terrain".
-    -   Set its `Centered` property to `false` and position it at `(0,0)`.
+### Step 1: Scene Construction (Parallel Structure)
+To verify the destruction logic, your Godot **Scene** tab should look like this. This "parallel" structure keeps the test logic separate from the map components.
+
+**Editor Setup (Parallel):**
+```text
+Main (Node2D)                   <-- Scene Root
+├── MapTester (Node2D)          <-- Attach MapTest.cs
+└── DDTankMap (Node2D)          <-- Attach DDTankMap.cs
+    └── TerrainSprite (Sprite2D) <-- Your map image
+```
+
+**Node Configuration:**
+1.  **MapTester (Logic)**:
+    -   **Script**: `plan/example/tester/MapTest.cs`.
+    -   **Terrain Sprite Path**: Point to `../DDTankMap/TerrainSprite`.
+    -   **Map Bridge Path**: Point to `../DDTankMap`.
+2.  **DDTankMap (The Bridge)**:
+    -   **Script**: `plan/example/DDTankMap.cs`.
+3.  **TerrainSprite (Visuals)**:
+    -   **Texture**: Load a large PNG.
+    -   **Centered**: **OFF** (Uncheck this).
+    -   **Position**: `(0, 0)`.
 
 ---
 
-### Step 2: Prepare a Mask (Mock or Real)
-You can either create a procedural mask for quick testing or load a real `.bomb` file from the original game assets.
+### Step 2: Understanding the File Roles
+To run this test, your project must include these three components:
 
-#### Option A: Procedural Circle (Mock)
-For testing purposes, you can manually create a small circular `Tile` to act as a "Bomb".
+| File | Role | Case for Use |
+| :--- | :--- | :--- |
+| **`DDTank.Shared/`** | **Core Logic** | The "Brain". Handles the 1-bit-per-pixel math. Used for physics parity with the server. |
+| **`DDTankMap.cs`** | **The Bridge** | The "Renderer". Synchronizes the C# bitmask with the Godot `ImageTexture`. |
+| **`MapTest.cs`** | **The Tester** | The "Interface". Captures clicks, creates test masks, and triggers the bridge. |
 
+---
+
+### Step 3: Interaction & Initialization
+The `MapTest.cs` script automates the setup. On `_Ready()`, it initializes the `DDTankMap` bridge and generates a procedural 30px circular "bomb" mask.
+
+**How to trigger a Dig:**
+Simply click the Left Mouse Button anywhere on the terrain. The following flow occurs:
+1. `MapTest` detects the click and gets local coordinates.
+2. It calls `_mapBridge.Dig()`.
+3. `DDTankMap` updates the logical bitmask (for physics) and wipes the corresponding pixels in the `Sprite2D` (for visuals).
+
+---
+
+### Advanced: Loading Real Masks (.bomb files)
+While `MapTest.cs` creates a circle by default, you can use the original game's binary masks for more accurate testing.
+
+**How to swap in a real mask:**
+Update the `_Ready` method in `MapTest.cs` to load a file instead of generating one:
 ```csharp
-public Tile CreateCircleMask(int radius) {
-    int size = radius * 2;
-    Tile mask = new Tile(size, size, true); 
-    for (int y = 0; y < size; y++) {
-        for (int x = 0; x < size; x++) {
-            double dist = Math.Sqrt(Math.Pow(x - radius, 2) + Math.Pow(y - radius, 2));
-            if (dist < radius) {
-                // Set the bit to solid in the mask
-                int idx = y * (size / 8 + 1) + x / 8;
-                mask.Data[idx] |= (byte)(0x01 << (7 - x % 8));
-            }
-        }
-    }
-    return mask;
-}
-```
-
-#### Option B: Real Binary `.bomb` File
-If you have extracted assets, you can load the exact crater shape used in the original game.
-
-```csharp
-// Inside MapTester.cs
-// Load a real bomb mask (e.g., from a 'bomb' folder in your Godot project)
+// Instead of _bombMask = CreateCircleMask(30);
 _bombMask = new Tile("res://assets/bombs/1.bomb", false); 
 ```
 
@@ -83,50 +101,8 @@ _bombMask = new Tile("res://assets/bombs/1.bomb", false);
 
 ---
 
-### Step 3: Initialization
-In your `MapTester.cs` script, initialize the `DDTankMap` bridge.
-
-```csharp
-public partial class MapTester : Node2D {
-    private DDTankMap _mapBridge;
-    private Tile _bombMask;
-
-    public override void _Ready() {
-        var sprite = GetNode<Sprite2D>("TerrainSprite");
-        
-        // 1. Initialize logical terrain (initially all solid)
-        var terrainLogic = new Tile((int)sprite.Texture.GetWidth(), (int)sprite.Texture.GetHeight(), true);
-        
-        // 2. Setup the bridge
-        _mapBridge = new DDTankMap();
-        AddChild(_mapBridge); // Add as child so it can process
-        _mapBridge.Initialize(terrainLogic, sprite);
-
-        // 3. Prepare our test hole
-        _bombMask = CreateCircleMask(30); 
-    }
-}
-```
-
----
-
-### Step 4: Implementing Interaction
-Add a mouse click handler to trigger the destruction at the click position.
-
-```csharp
-public override void _Input(InputEvent @event) {
-    if (@event is InputEventMouseButton mouseEvent && mouseEvent.Pressed && mouseEvent.ButtonIndex == MouseButton.Left) {
-        // Trigger the Dig!
-        Vector2 pos = GetLocalMousePosition();
-        _mapBridge.Dig((int)pos.X, (int)pos.Y, _bombMask, null);
-    }
-}
-```
-
----
-
-### Step 5: Verification Checklist
-Run the scene and perform the following checks:
+### Step 4: Verification Checklist (What to expect)
+Run the scene (**F5**) and check for these behaviors:
 
 1.  **Visual Transparency**: Does clicking on the terrain create a transparent hole?
 2.  **Boundary Safety**: Try clicking near the edges of the map. Does the application crash or handle the bounds gracefully?

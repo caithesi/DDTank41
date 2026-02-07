@@ -29,6 +29,15 @@ namespace DDTank.Godot.Example
             
             // Get raw image data from the existing texture to allow per-pixel modification.
             _image = _view.Texture.GetImage();
+
+            // 1. Decompress if necessary (Godot imports textures with VRAM compression by default)
+            if (_image.IsCompressed())
+            {
+                _image.Decompress();
+            }
+
+            // 2. Convert to a format that supports transparency (RGBA8)
+            _image.Convert(Image.Format.Rgba8);
             
             // Create a new ImageTexture that can be updated dynamically.
             _texture = ImageTexture.CreateFromImage(_image);
