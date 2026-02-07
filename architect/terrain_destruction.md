@@ -83,6 +83,44 @@ The `Dig` method accepts a `border` tile.
 - **Purpose**: Original DDTank uses this to add a jagged or "burnt" edge to the hole. 
 - **Implementation**: The logic is `Map.Dig(cx, cy, surface, border)`. The `surface` removes terrain, while the `border` adds a specialized "edge" layer. If you only want simple destruction, you can pass `null` for the border.
 
+## 5. Visual Verification & Reproduction
+
+To ensure 100% parity between the C# logical bitmask and the Godot visual texture, the following implementation details are critical:
+
+### Sub-Byte Alignment (The "Secret")
+Because players can fire at any coordinate, the explosion center `(cx, cy)` is rarely aligned to an 8-pixel boundary.
+- **Logical Shift**: The `Tile.cs` logic uses `b_offset = intersectX % 8` to determine how many bits to shift the `.bomb` mask.
+- **Visual Parity**: When updating the Godot `ImageTexture`, you must iterate bit-by-bit or use a shader. If you use `Image.SetPixel`, ensure your loop starts from the exact `(x1, y1)` calculated as `(cx - hole.Width / 2)`.
+
+### Bit Order Consistency
+DDTank uses **Big-Endian bit order** within each byte:
+- `0x80` (Binary `1000 0000`) = Leftmost pixel (Index 0).
+- `0x01` (Binary `0000 0001`) = Rightmost pixel (Index 7).
+- **Warning**: If you invert this (Little-Endian), holes will appear "flipped" or "shredded" at the byte boundaries.
+
+### Verification Workflow
+Before integrating into the full Godot game, verify the "Dig" logic with these test cases:
+1.  **Centered Dig**: Dig at `(X % 8 == 0)`. Should be a perfect circle/shape.
+2.  **Offset Dig**: Dig at `(X % 8 == 5)`. Check if the hole is shifted correctly without "ghost" pixels at the byte edges.
+3.  **Boundary Dig**: Dig at `(0, 0)`. Ensure no out-of-bounds memory access.
+4.  **Overlapping Dig**: Dig two holes that partially overlap. The intersection should remain empty.
+
+### Visual "Puncher" Logic (Pseudocode)
+```csharp
+void UpdateVisuals(Image image, Tile hole, int cx, int cy) {
+    int x1 = cx - hole.Width / 2;
+    int y1 = cy - hole.Height / 2;
+    for (int y = 0; y < hole.Height; y++) {
+        for (int x = 0; x < hole.Width; x++) {
+            if (!hole.IsEmpty(x, y)) {
+                image.SetPixel(x1 + x, y1 + y, Color(0,0,0,0));
+            }
+        }
+    }
+}
+```
+*Note: For production, use `Image.GetData()` and manipulate the byte array directly for performance.*
+
 ### Visual Guide: Dig Logic
 1.  **Server calculates impact**: Sends Packet 91 (Combat Script) with impact `(x, y)` and `BallID`.
 2.  **Client fetches mask**: `BallManager.FindTile(BallID)` returns the specific `.bomb` bitmask.
