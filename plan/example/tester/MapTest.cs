@@ -1,142 +1,130 @@
 using Godot;
 using DDTank.Shared;
 using System;
+using System.Collections.Generic;
 
 namespace DDTank.Godot.Example
 {
     /// <summary>
     /// A manual tester for Destructible Terrain in Godot.
-    /// To use this:
-    /// 1. Create a 2D Scene in Godot.
-    /// 2. Add a Sprite2D with a large terrain texture (e.g., a landscape).
-    /// 3. Set the Sprite2D's 'Centered' property to false and position it at (0,0).
-    /// 4. Attach this script to the root node or a parent node.
+    /// Provides a flexible way to switch between a procedural circle and real .bomb files.
+    /// 
+    /// Usage:
+    /// - LEFT CLICK: Dig a hole.
+    /// - MOUSE WHEEL: Cycle between Circle Mode and all .bomb files in the folder.
     /// </summary>
     public partial class MapTest : Node2D
     {
-        [Export]
-        public NodePath TerrainSpritePath;
-
-        [Export]
-        public NodePath MapBridgePath; // Allow assigning an existing bridge node
-
-        [Export]
-        public string BombFilePath;
-
-        [Export]
-        public int CircleRadius = 30;
+        [Export] public NodePath TerrainSpritePath;
+        [Export] public NodePath MapBridgePath; 
+        [Export] public string BombFolder = "res://bomb/";
+        [Export] public int CircleRadius = 30;
 
         private DDTankMap _mapBridge;
-        private Tile _bombMask;
+        private List<string> _bombFiles = new List<string>();
+        private int _currentIndex = -1; // -1 = Circle Mode, 0+ = Bomb Files
+        private Tile _currentMask;
 
         public override void _Ready()
         {
             GD.Print("MapTest: Initializing...");
 
-            // 1. Get the Sprite2D
+            // 1. Get nodes
             Sprite2D sprite = GetNode<Sprite2D>(TerrainSpritePath);
-            if (sprite == null)
+            _mapBridge = GetNode<DDTankMap>(MapBridgePath);
+
+            if (sprite == null || _mapBridge == null)
             {
-                GD.PrintErr("MapTest: TerrainSpritePath not set or invalid!");
+                GD.PrintErr("MapTest: Sprite or Bridge not found! Check NodePaths.");
                 return;
             }
 
-            // 2. Initialize logical terrain
-            int width = (int)sprite.Texture.GetSize().X;
-            int height = (int)sprite.Texture.GetSize().Y;
-            Tile terrainLogic = new Tile(width, height, true);
-            // Fill with solid by default
-            for (int i = 0; i < terrainLogic.Data.Length; i++) terrainLogic.Data[i] = 0xFF;
+            // 2. Initialize logical terrain (Solid)
+            int w = (int)sprite.Texture.GetSize().X;
+            int h = (int)sprite.Texture.GetSize().Y;
+            Tile logic = new Tile(w, h, true);
+            for (int i = 0; i < logic.Data.Length; i++) logic.Data[i] = 0xFF;
 
-            // 3. Setup/Find the Bridge
-            if (MapBridgePath != null && !MapBridgePath.IsEmpty)
-            {
-                _mapBridge = GetNode<DDTankMap>(MapBridgePath);
-            }
+            _mapBridge.Initialize(logic, sprite);
+
+            // 3. Scan for bomb files
+            ScanBombFolder();
             
-            if (_mapBridge == null)
-            {
-                GD.Print("MapTest: No bridge assigned, creating a dynamic one...");
-                _mapBridge = new DDTankMap();
-                AddChild(_mapBridge);
-            }
+            // 4. Start with Circle Mode
+            SwitchMode(-1);
 
-            _mapBridge.Initialize(terrainLogic, sprite);
+            GD.Print("MapTest: READY.");
+            GD.Print(" -> LEFT CLICK: Dig");
+            GD.Print(" -> MOUSE WHEEL: Cycle between Circle and .bomb files");
+        }
 
-            // 4. Prepare a test "Bomb" mask
-            if (!string.IsNullOrEmpty(BombFilePath))
+        private void ScanBombFolder()
+        {
+            using var dir = DirAccess.Open(BombFolder);
+            if (dir != null)
             {
-                GD.Print($"MapTest: Attempting to load bomb mask from {BombFilePath}");
-                _bombMask = CreateTileFromBombFile(BombFilePath);
-                if (_bombMask == null)
+                dir.ListDirBegin();
+                string file = dir.GetNext();
+                while (file != "")
                 {
-                    GD.PrintErr("MapTest: Failed to load specified bomb file. Digging will be disabled.");
+                    if (!dir.CurrentIsDir() && file.EndsWith(".bomb"))
+                    {
+                        _bombFiles.Add(BombFolder + file);
+                    }
+                    file = dir.GetNext();
                 }
+            }
+            GD.Print($"MapTest: Found {_bombFiles.Count} bomb files in {BombFolder}");
+        }
+
+        private void SwitchMode(int index)
+        {
+            // Wrap around logic
+            if (index < -1) index = _bombFiles.Count - 1;
+            if (index >= _bombFiles.Count) index = -1;
+
+            _currentIndex = index;
+
+            if (_currentIndex == -1)
+            {
+                _currentMask = CreateCircleMask(CircleRadius);
+                GD.Print("[MODE: Procedural Circle]");
             }
             else
             {
-                GD.Print($"MapTest: No BombFilePath provided, creating procedural circle mask (Radius: {CircleRadius}).");
-                _bombMask = CreateCircleMask(CircleRadius);
+                string path = _bombFiles[_currentIndex];
+                // ProjectSettings.GlobalizePath is used because Tile.cs uses System.IO
+                string globalPath = ProjectSettings.GlobalizePath(path);
+                _currentMask = new Tile(globalPath, false);
+                GD.Print($"[MODE: Bomb File] {path.GetFile()} ({_currentMask.Width}x{_currentMask.Height})");
             }
-
-            GD.Print("MapTest: Ready! Left-click on the terrain to dig holes.");
         }
 
         public override void _Input(InputEvent @event)
         {
-            // Detect Mouse Left Click
-            if (@event is InputEventMouseButton mouseEvent && mouseEvent.Pressed && mouseEvent.ButtonIndex == MouseButton.Left)
+            if (@event is InputEventMouseButton mb && mb.Pressed)
             {
-                if (_bombMask == null)
+                // Left Click = Dig
+                if (mb.ButtonIndex == MouseButton.Left)
                 {
-                    GD.PrintErr("MapTest: No bomb mask available to dig!");
-                    return;
+                    Vector2 pos = GetLocalMousePosition();
+                    _mapBridge.Dig((int)pos.X, (int)pos.Y, _currentMask, null);
                 }
-
-                Vector2 pos = GetLocalMousePosition();
                 
-                GD.Print($"MapTest: Digging at {(int)pos.X}, {(int)pos.Y}");
-                
-                // Trigger the Dig operation on the bridge
-                // This updates both the bitmask (for physics) and the texture (for visuals)
-                _mapBridge.Dig((int)pos.X, (int)pos.Y, _bombMask, null);
-            }
-        }
-
-        /// <summary>
-        /// Loads a Tile mask from a binary .bomb file.
-        /// Fails explicitly if the file cannot be loaded.
-        /// </summary>
-        private Tile CreateTileFromBombFile(string path)
-        {
-            try
-            {
-                // If it's a Godot path (res://), we need to map it to a global path for System.IO
-                string globalPath = ProjectSettings.GlobalizePath(path);
-                
-                if (!System.IO.File.Exists(globalPath))
-                {
-                    GD.PrintErr($"MapTest: Bomb file not found at {globalPath}");
-                    return null;
-                }
-
-                return new Tile(globalPath, false);
-            }
-            catch (Exception ex)
-            {
-                GD.PrintErr($"MapTest: Error loading bomb file: {ex.Message}");
-                return null;
+                // Mouse Wheel = Cycle Shapes
+                if (mb.ButtonIndex == MouseButton.WheelUp) SwitchMode(_currentIndex + 1);
+                if (mb.ButtonIndex == MouseButton.WheelDown) SwitchMode(_currentIndex - 1);
             }
         }
 
         /// <summary>
         /// Procedurally creates a circular bitmask for testing.
+        /// Matches the Big-Endian bit order (0x80 = leftmost pixel).
         /// </summary>
         private Tile CreateCircleMask(int radius)
         {
             int size = radius * 2;
             Tile mask = new Tile(size, size, false);
-            
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
@@ -144,12 +132,8 @@ namespace DDTank.Godot.Example
                     double dist = Math.Sqrt(Math.Pow(x - radius, 2) + Math.Pow(y - radius, 2));
                     if (dist < radius)
                     {
-                        // Set the bit to solid (1) in the mask.
-                        // This uses the same bit-packing logic as the original DDTank.
                         int bw = size / 8 + 1;
-                        int byteIdx = y * bw + x / 8;
-                        byte bitMask = (byte)(0x01 << (7 - x % 8));
-                        mask.Data[byteIdx] |= bitMask;
+                        mask.Data[y * bw + x / 8] |= (byte)(0x80 >> (x % 8));
                     }
                 }
             }

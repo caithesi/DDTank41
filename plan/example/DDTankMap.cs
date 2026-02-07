@@ -55,6 +55,8 @@ namespace DDTank.Godot.Example
         /// <param name="borderMask">Optional bitmask for a decorative border/edge.</param>
         public void Dig(int x, int y, Tile holeMask, Tile borderMask)
         {
+            if (holeMask == null) return;
+
             // 1. Update the logical bitmasks (Shared Logic).
             // This ensures that future physics checks (e.g., player movement) reflect the hole.
             _terrainLogic.Dig(x, y, holeMask, borderMask);
@@ -64,25 +66,13 @@ namespace DDTank.Godot.Example
             int startX = x - (holeMask.Width / 2);
             int startY = y - (holeMask.Height / 2);
             
-            // Apply the visual transparency update.
-            UpdateMapTexture(startX, startY, holeMask);
-        }
-
-        /// <summary>
-        /// Synchronizes the Godot ImageTexture by making pixels transparent where the mask is solid.
-        /// </summary>
-        /// <param name="startX">Top-left X of the update region.</param>
-        /// <param name="startY">Top-left Y of the update region.</param>
-        /// <param name="mask">The mask representing the area to be cleared.</param>
-        private void UpdateMapTexture(int startX, int startY, Tile mask)
-        {
             // Iterate through every pixel in the hole mask.
-            for (int dy = 0; dy < mask.Height; dy++)
+            for (int dy = 0; dy < holeMask.Height; dy++)
             {
-                for (int dx = 0; dx < mask.Width; dx++)
+                for (int dx = 0; dx < holeMask.Width; dx++)
                 {
                     // If the mask bit is 1 (solid), it means we remove this pixel from the terrain.
-                    if (!mask.IsEmpty(dx, dy))
+                    if (!holeMask.IsEmpty(dx, dy))
                     {
                         int targetX = startX + dx;
                         int targetY = startY + dy;
@@ -92,7 +82,7 @@ namespace DDTank.Godot.Example
                             targetY >= 0 && targetY < _terrainLogic.Height)
                         {
                             // Set pixel to fully transparent in the Godot Image.
-                            _image.SetPixel(targetX, targetY, Colors.Transparent);
+                            _image.SetPixel(targetX, targetY, new Color(0, 0, 0, 0));
                         }
                     }
                 }
@@ -100,7 +90,7 @@ namespace DDTank.Godot.Example
 
             // Push the modified image data back to the GPU texture.
             // Note: Update() is more efficient than recreating the texture.
-            _texture.Update((_image));
+            _texture.Update(_image);
         }
     }
 }

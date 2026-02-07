@@ -1,8 +1,8 @@
 # Process 3: Destructible Terrain & Godot Integration
 
-## 1. Summary of Progress (2026-02-06)
+## 1. Summary of Progress (2026-02-07)
 
-Following the infrastructure setup, we focused on the core gameplay mechanic: **Destructible Terrain**. We successfully bridged the server's bitmask-based logic with Godot's pixel-based rendering.
+Following the infrastructure setup, we focused on the core gameplay mechanic: **Destructible Terrain**. We successfully bridged the server's bitmask-based logic with Godot's pixel-based rendering and implemented a flexible testing utility.
 
 ### Logic Extraction (DDTank.Shared)
 We completed the "Backend" logic for terrain, ensuring 100% mathematical parity with the original game.
@@ -12,8 +12,8 @@ We completed the "Backend" logic for terrain, ensuring 100% mathematical parity 
 
 ### Godot Implementation ("The Bridge")
 We designed a synchronization strategy between Godot's `ImageTexture` and the shared logic's bitmask.
-- **`DDTankMap.cs`**: Created a custom Godot C# script that translates a PNG texture into a `Tile` bitmask on startup and synchronizes pixel transparency in real-time.
-- **`IMap` Implementation**: The Godot-side node now acts as the official world authority for physics objects (`BombObject`).
+- **`DDTankMap.cs`**: Refined the bridge logic with robust null checks and inlined visual synchronization for 1-to-1 parity between physics and visuals.
+- **Flexible Tester (`MapTest.cs`)**: Upgraded the tester to support cycling between procedural circles and all available `.bomb` binary masks via the mouse wheel.
 
 **Critical Implementation Details:**
 1.  **Image Preparation**: Godot imports textures with VRAM compression. To modify pixels via code, the image must be decompressed using `image.Decompress()` and converted to `Image.Format.Rgba8` to ensure an alpha channel exists.
@@ -49,6 +49,7 @@ Main (Node2D)                   <-- Scene Root
     -   **Script**: `plan/example/tester/MapTest.cs`.
     -   **Terrain Sprite Path**: Point to `../DDTankMap/TerrainSprite`.
     -   **Map Bridge Path**: Point to `../DDTankMap`.
+    -   **Bomb Folder**: `res://bomb/` (Path to your legacy .bomb assets).
 2.  **DDTankMap (The Bridge)**:
     -   **Script**: `plan/example/DDTankMap.cs`.
 3.  **TerrainSprite (Visuals)**:
@@ -65,18 +66,19 @@ To run this test, your project must include these three components:
 | :--- | :--- | :--- |
 | **`DDTank.Shared/`** | **Core Logic** | The "Brain". Handles the 1-bit-per-pixel math. Used for physics parity with the server. |
 | **`DDTankMap.cs`** | **The Bridge** | The "Renderer". Synchronizes the C# bitmask with the Godot `ImageTexture`. |
-| **`MapTest.cs`** | **The Tester** | The "Interface". Captures clicks, creates test masks, and triggers the bridge. |
+| **`MapTest.cs`** | **The Tester** | The "Interface". Captures clicks, manages shape modes, and triggers the bridge. |
 
 ---
 
 ### Step 3: Interaction & Initialization
-The `MapTest.cs` script automates the setup. On `_Ready()`, it initializes the `DDTankMap` bridge and generates a procedural 30px circular "bomb" mask.
+The `MapTest.cs` script automates the setup. On `_Ready()`, it initializes the `DDTankMap` bridge and scans the `BombFolder` for available masks.
 
-**How to trigger a Dig:**
-Simply click the Left Mouse Button anywhere on the terrain. The following flow occurs:
-1. `MapTest` detects the click and gets local coordinates.
-2. It calls `_mapBridge.Dig()`.
-3. `DDTankMap` updates the logical bitmask (for physics) and wipes the corresponding pixels in the `Sprite2D` (for visuals).
+**How to interact:**
+1.  **Switch Mode**: Scroll the **Mouse Wheel** to cycle between **Procedural Circle** (Mode -1) and available **.bomb files** (Mode 0+). Check the Godot Output console for the current active mask.
+2.  **Trigger a Dig**: Click the **Left Mouse Button** anywhere on the terrain.
+    - `MapTest` detects the click and gets local coordinates.
+    - It calls `_mapBridge.Dig()` using the currently selected mask.
+    - `DDTankMap` updates the logical bitmask (for physics) and wipes the corresponding pixels in the `Sprite2D` (for visuals).
 
 ---
 
