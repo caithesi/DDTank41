@@ -33,4 +33,4 @@ Technical logs and temporary research notes.
 - **destroy_map_test.md**: Notes on early map destruction experiments.
 
 ## Root Files
-- **overall.md**: The master roadmap for the entire project.
+- **overall_plan.md**: The master roadmap for the entire project.
