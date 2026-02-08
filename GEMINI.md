@@ -37,6 +37,7 @@ The solution is divided into several key projects/layers:
 *   `/Center.Server`: Central login and coordination server.
 *   `/Fighting.Server`: Battle logic server.
 *   `/Database`: MSSQL backup files (`.bak`).
+*   `**/map/`: (Runtime) Contains binary `.map` files (`fore.map`, `dead.map`) used for terrain physics and destruction.
 *   `/plan`: Migration roadmap and process documentation.
 *   `/architect`: Detailed technical specifications for Godot systems.
 *   `/architect/legacy`: Deep-dive technical documentation of original C# systems (Physics, Terrain, Actions, Networking).
