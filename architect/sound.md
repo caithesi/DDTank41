@@ -69,3 +69,23 @@ sequenceDiagram
     - **SoundChannel Limit**: Flash has a limit of 32 simultaneous sound channels. `SoundManager` manages these to prevent overflow.
     - **Resource Reuse**: SFX are cached once loaded from their respective modules.
     - **Buffer Time**: BGM streaming uses a 0.3s buffer (`NetStream.bufferTime`) to balance latency and stability.
+
+## 6. Asset Origin & Migration (Godot)
+
+### Source Location
+- **Original Source**: `Source Flash/FlashSV1/audio.swf`. This is the master container where sounds are stored as Exported Symbols in the Flash library.
+- **Extracted Source**: `audio_decomplied/` directory. This is the result of decompiling the SWF for loose asset access.
+- **Naming Convention (Decompiled)**: JPEXS exports sounds as `[InternalID]_[ClassName].[Extension]` (e.g., `90_Sound093.mp3`).
+- **Mapping Reference**: `audio_decomplied/symbolClass/symbols.csv` contains the link between internal IDs and class names (e.g., `119;"Sound021"`).
+
+### Migration Strategy
+1.  **Preparation**:
+    -   Identify the sound ID from `BallList.xml` (e.g., `BombSound="093"`).
+    -   Locate the matching file in `audio_decomplied/sounds/` (e.g., `90_Sound093.mp3`).
+2.  **Renaming**: Rename these files to their pure ID for clean loading in Godot (e.g., `093.mp3`).
+3.  **Conversion**: 
+    -   Convert `.mp3` to `.wav` for high-frequency SFX (explosions, clicks) to reduce CPU overhead in Godot.
+    -   Godot prefers `.ogg` for long music tracks.
+4.  **Placement**: Place the final assets in `res://assets/sound/`.
+5.  **Implementation**:
+    -   The `SoundManager` in Godot should resolve IDs by constructing the path: `$"res://assets/sound/{soundId}.wav"`.
